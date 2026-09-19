@@ -369,14 +369,7 @@ fn run(cli: Cli) -> Result<()> {
 
 // The audiobook commands
 fn listen_command(json: bool, store: &Store, action: ListenAction) -> Result<()> {
-    let plan = |id| {
-        reader::plan(
-            store,
-            id,
-            &scan::default_roots(),
-            &reader::default_unpack_dir(),
-        )
-    };
+    let plan = |id| listen::plan_for(store, id);
     let at = |at: Option<String>| {
         at.map(|a| listen::parse_location(&a).context("--at is track:seconds, like 2:95.5"))
             .transpose()
@@ -390,8 +383,7 @@ fn listen_command(json: bool, store: &Store, action: ListenAction) -> Result<()>
             // checked here, so a mistake is said now rather than in the session's log
             at(place.clone())?;
             speed.map(listen::check_speed).transpose()?;
-            let exe = std::env::current_exe()?.display().to_string();
-            let mut session = vec![exe, "listen".into(), "session".into(), id.to_string()];
+            let mut session = listen::session_command(id)?;
             if let Some(place) = place {
                 session.extend(["--at".into(), place]);
             }

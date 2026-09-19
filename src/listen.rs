@@ -436,6 +436,26 @@ fn now_playing_id() -> Result<Option<i64>> {
     Ok(mpv.get(BOOK_KEY)?.as_i64().filter(|_| playing))
 }
 
+// Everything a book needs to play: its tracks, in order, and its chapters
+pub fn plan_for(store: &Store, id: i64) -> Result<Plan> {
+    crate::reader::plan(
+        store,
+        id,
+        &crate::scan::default_roots(),
+        &crate::reader::default_unpack_dir(),
+    )
+}
+
+// The command that runs one listening session for this book
+pub fn session_command(id: i64) -> Result<Vec<String>> {
+    Ok(vec![
+        std::env::current_exe()?.display().to_string(),
+        "listen".into(),
+        "session".into(),
+        id.to_string(),
+    ])
+}
+
 // ── The session ──
 
 // Run one listening session: start mpv on the book, keep the place until mpv exits
