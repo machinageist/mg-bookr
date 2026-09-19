@@ -34,7 +34,12 @@ CREATE TABLE chapters (book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE C
   title TEXT NOT NULL, start_seconds REAL NOT NULL, PRIMARY KEY(book_id, idx));",
     // M2: the speed an audiobook was last played at; a scan never touches it
     "ALTER TABLE books ADD COLUMN speed REAL;",
+    // M3: how this book is read, pages or scroll; unset means the reader's own default
+    "ALTER TABLE books ADD COLUMN reading_mode TEXT;",
 ];
+
+// how a book can be read
+pub const READING_MODES: [&str; 2] = ["pages", "scroll"];
 
 // what kinds of book there are
 pub const KINDS: [&str; 5] = ["epub", "pdf", "comic", "audio", "audio-folder"];
@@ -355,6 +360,33 @@ impl Store {
             .with_context(|| format!("no book {id}"))
     }
 
+    // Remember whether this book is read in pages or as one scroll
+    pub fn set_mode(&self, id: i64, mode: &str) -> Result<()> {
+        if !READING_MODES.contains(&mode) {
+            bail!("a reading mode is {}", READING_MODES.join(" or "))
+        }
+        let changed = self.conn()?.execute(
+            "UPDATE books SET reading_mode=?2 WHERE id=?1",
+            params![id, mode],
+        )?;
+        if changed == 0 {
+            bail!("no book {id}")
+        }
+        Ok(())
+    }
+
+    // How this book is read, if it has been said
+    pub fn mode(&self, id: i64) -> Result<Option<String>> {
+        self.conn()?
+            .query_row(
+                "SELECT reading_mode FROM books WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .with_context(|| format!("no book {id}"))
+    }
+
     // ── Highlights ──
 
     pub fn add_highlight(
@@ -575,6 +607,29 @@ mod tests {
         assert!(s.set_speed(id, f64::NAN).is_err());
         assert!(s.set_speed(999, 1.0).is_err());
         assert!(s.speed(999).is_err());
+    }
+
+    #[test]
+    fn a_reading_mode_is_kept_per_book() {
+        let (_d, s) = store();
+        s.save_scan(&["books"], &[found("books", "a.epub", "A")])
+            .unwrap();
+        let id = s.books(None, false).unwrap()[0].id;
+        assert_eq!(
+            s.mode(id).unwrap(),
+            None,
+            "the reader decides until it is said"
+        );
+        s.set_mode(id, "scroll").unwrap();
+        s.save_scan(&["books"], &[found("books", "a.epub", "A")])
+            .unwrap();
+        assert_eq!(
+            s.mode(id).unwrap().as_deref(),
+            Some("scroll"),
+            "a rescan keeps it"
+        );
+        assert!(s.set_mode(id, "sideways").is_err());
+        assert!(s.mode(999).is_err());
     }
 
     #[test]
