@@ -15,7 +15,8 @@ use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 
-const MIGRATIONS: &[&str] = &["\
+const MIGRATIONS: &[&str] = &[
+    "\
 CREATE TABLE books (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, root TEXT NOT NULL, path TEXT NOT NULL, \
   title TEXT NOT NULL, author TEXT, series TEXT, series_index REAL, cover TEXT, pages INTEGER, \
   duration_seconds REAL, added_at TEXT NOT NULL, missing INTEGER NOT NULL DEFAULT 0, UNIQUE(root, path)); \
@@ -30,7 +31,10 @@ CREATE TABLE collection_books (collection_id INTEGER NOT NULL REFERENCES collect
 CREATE TABLE tracks (book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, idx INTEGER NOT NULL, \
   path TEXT NOT NULL, duration_seconds REAL, PRIMARY KEY(book_id, idx)); \
 CREATE TABLE chapters (book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, idx INTEGER NOT NULL, \
-  title TEXT NOT NULL, start_seconds REAL NOT NULL, PRIMARY KEY(book_id, idx));"];
+  title TEXT NOT NULL, start_seconds REAL NOT NULL, PRIMARY KEY(book_id, idx));",
+    // M2: the speed an audiobook was last played at; a scan never touches it
+    "ALTER TABLE books ADD COLUMN speed REAL;",
+];
 
 // what kinds of book there are
 pub const KINDS: [&str; 5] = ["epub", "pdf", "comic", "audio", "audio-folder"];
@@ -327,6 +331,30 @@ impl Store {
         Ok(rows)
     }
 
+    // Remember the speed an audiobook was last played at
+    pub fn set_speed(&self, id: i64, speed: f64) -> Result<()> {
+        if !speed.is_finite() || speed <= 0.0 {
+            bail!("a speed is a positive number")
+        }
+        let changed = self
+            .conn()?
+            .execute("UPDATE books SET speed=?2 WHERE id=?1", params![id, speed])?;
+        if changed == 0 {
+            bail!("no book {id}")
+        }
+        Ok(())
+    }
+
+    // The speed an audiobook was last played at, if it has been played
+    pub fn speed(&self, id: i64) -> Result<Option<f64>> {
+        self.conn()?
+            .query_row("SELECT speed FROM books WHERE id=?1", params![id], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .with_context(|| format!("no book {id}"))
+    }
+
     // ── Highlights ──
 
     pub fn add_highlight(
@@ -527,6 +555,26 @@ mod tests {
             ("A2", false, Some("3:0.5"))
         );
         assert_eq!(s.highlights(a.id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_speed_is_kept_per_book_and_survives_a_rescan() {
+        let (_d, s) = store();
+        let roots = [crate::scan::AUDIOBOOKS];
+        s.save_scan(&roots, &[found(crate::scan::AUDIOBOOKS, "a.m4b", "A")])
+            .unwrap();
+        let id = s.books(None, false).unwrap()[0].id;
+        assert_eq!(s.speed(id).unwrap(), None);
+        s.set_speed(id, 1.75).unwrap();
+        s.save_scan(
+            &roots,
+            &[found(crate::scan::AUDIOBOOKS, "a.m4b", "A again")],
+        )
+        .unwrap();
+        assert_eq!(s.speed(id).unwrap(), Some(1.75));
+        assert!(s.set_speed(id, f64::NAN).is_err());
+        assert!(s.set_speed(999, 1.0).is_err());
+        assert!(s.speed(999).is_err());
     }
 
     #[test]
