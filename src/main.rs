@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 
 use mg_bookr::store::{self, Book, Store};
-use mg_bookr::{reader, scan};
+use mg_bookr::{reader, scan, vault};
 
 const DEFAULT_CONTINUE: usize = 12;
 
@@ -70,6 +70,8 @@ enum Command {
         #[command(subcommand)]
         action: CollectionAction,
     },
+    /// Write a book's highlights into mg-vault as one Markdown note (done after every highlight change too)
+    Export { id: i64 },
 }
 
 #[derive(Subcommand)]
@@ -230,10 +232,11 @@ fn run(cli: Cli) -> Result<()> {
                     note.as_deref(),
                     &color,
                 )?;
+                let vault = sync(&store, book);
                 done(
                     json,
-                    json!({ "ok": true, "id": id }),
-                    format!("highlight {id} saved"),
+                    json!({ "ok": true, "id": id, "vault": vault }),
+                    format!("highlight {id} saved; {vault}"),
                 );
             }
             HighlightAction::List { book } => {
@@ -247,12 +250,22 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             HighlightAction::Note { id, text } => {
-                store.set_note(id, &text)?;
-                done(json, json!({ "ok": true }), "note saved".into());
+                let book = store.set_note(id, &text)?;
+                let vault = sync(&store, book);
+                done(
+                    json,
+                    json!({ "ok": true, "vault": vault }),
+                    format!("note saved; {vault}"),
+                );
             }
             HighlightAction::Remove { id } => {
-                store.remove_highlight(id)?;
-                done(json, json!({ "ok": true }), "highlight removed".into());
+                let book = store.remove_highlight(id)?;
+                let vault = sync(&store, book);
+                done(
+                    json,
+                    json!({ "ok": true, "vault": vault }),
+                    format!("highlight removed; {vault}"),
+                );
             }
         },
         Command::Collection { action } => match action {
@@ -283,8 +296,35 @@ fn run(cli: Cli) -> Result<()> {
                 done(json, json!({ "ok": true }), format!("removed from {name}"));
             }
         },
+        Command::Export { id } => {
+            let book = store.book(id)?;
+            let (path, outcome) =
+                vault::export(&vault::RealVault::from_env(), &book, &store.highlights(id)?)?;
+            let what = match outcome {
+                vault::Outcome::Created => "created",
+                vault::Outcome::Updated => "updated",
+                vault::Outcome::Unchanged => "already up to date",
+            };
+            done(
+                json,
+                json!({ "ok": true, "path": path, "outcome": what }),
+                format!("{path}: {what}"),
+            );
+        }
     }
     Ok(())
+}
+
+// After a highlight change: rewrite the book's vault note, and say how it went (never fails the change)
+fn sync(store: &Store, book_id: i64) -> String {
+    let result = store.book(book_id).and_then(|book| {
+        let highlights = store.highlights(book_id)?;
+        vault::export(&vault::RealVault::from_env(), &book, &highlights)
+    });
+    match result {
+        Ok((path, _)) => format!("vault note {path} updated"),
+        Err(e) => format!("vault note not written: {e:#}"),
+    }
 }
 
 // An action's answer: JSON, or one line
