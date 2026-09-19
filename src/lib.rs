@@ -11,4 +11,5 @@ pub mod reader;
 pub mod scan;
 pub mod store;
 pub mod tools;
+pub mod tui;
 pub mod vault;

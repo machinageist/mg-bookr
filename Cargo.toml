@@ -12,6 +12,8 @@ clap = { version = "4.5", features = ["derive"] }
 dirs = "5"
 # reads EPUB package files (small, no unsafe, DOM is fine at OPF size)
 roxmltree = "0.20"
+# the suite's TUI toolkit (it re-exports crossterm)
+ratatui = "0.29"
 # the suite's SQLite version
 rusqlite = "0.32"
 serde = { version = "1", features = ["derive"] }
