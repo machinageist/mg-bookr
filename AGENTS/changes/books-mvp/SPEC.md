@@ -18,6 +18,10 @@ reader, and highlights that land in the vault. Local folders only, DRM-free, no 
   (default `~/audiobooks`).
 - Audiobooks play through **mpv** (JSON IPC): speed 0.75–3× with natural pitch, chapters, and a
   sleep timer. mpv-mpris gives media keys.
+- Listening runs as an **on-demand session**: `listen play` starts one mg-bookr process that
+  owns mpv and exits with it; no always-on unit. Speed is remembered **per book**. Comforts
+  (2026-09-19): back up 10 s on a resume after 5+ minutes away; the sleep timer fades out
+  over its last 10 s; starting a book pauses mpd music (not resumed afterwards).
 - Reading happens in **its own process**: a small Quickshell program sharing the desktop Theme.
   EPUB is drawn by WebEngine with the theme injected, PDF by QtQuick.Pdf, comics as images.
   Pages or continuous scroll, switchable per book.
