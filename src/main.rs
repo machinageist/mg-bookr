@@ -12,8 +12,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
-use mg_bookr::scan;
 use mg_bookr::store::{self, Book, Store};
+use mg_bookr::{reader, scan};
 
 const DEFAULT_CONTINUE: usize = 12;
 
@@ -50,6 +50,8 @@ enum Command {
     },
     /// One book with its tracks, chapters and highlights
     Show { id: i64 },
+    /// Everything the reader window or player needs to open a book (unpacks EPUBs and comics)
+    Read { id: i64 },
     /// Record where you are in a book
     Progress {
         id: i64,
@@ -163,6 +165,30 @@ fn run(cli: Cli) -> Result<()> {
                             .as_ref()
                             .map_or(String::new(), |n| format!(" \u{2014} {n}"))
                     );
+                }
+            }
+        }
+        Command::Read { id } => {
+            let plan = reader::plan(
+                &store,
+                id,
+                &scan::default_roots(),
+                &reader::default_unpack_dir(),
+            )?;
+            if json {
+                println!("{}", serde_json::to_string(&plan)?);
+            } else {
+                println!("{}  {}", line(&plan.book), plan.file);
+                if let Some(e) = &plan.epub {
+                    println!(
+                        "  {} pages, {} contents entries, unpacked in {}",
+                        e.spine.len(),
+                        e.toc.len(),
+                        e.dir
+                    );
+                }
+                if !plan.pages.is_empty() {
+                    println!("  {} comic pages", plan.pages.len());
                 }
             }
         }
