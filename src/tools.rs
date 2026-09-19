@@ -6,6 +6,7 @@
 //        fill memory. A tool that is not installed is a plain error the caller can shrug off
 
 use std::io::Read;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -13,6 +14,20 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 const POLL: Duration = Duration::from_millis(20);
+
+// A suite program: $<env> when set, else $GEIST_ROOT (or ~/geistos/mg-suite)/<repo>/target/debug/<name>
+pub fn suite_binary(env: &str, repo: &str, name: &str) -> PathBuf {
+    std::env::var_os(env).map(PathBuf::from).unwrap_or_else(|| {
+        let root = std::env::var_os("GEIST_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join("geistos/mg-suite")
+            });
+        root.join(repo).join("target/debug").join(name)
+    })
+}
 
 // What a finished run left behind
 pub struct Output {

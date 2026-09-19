@@ -34,19 +34,9 @@ pub struct RealVault {
 
 impl RealVault {
     pub fn from_env() -> Self {
-        let binary = std::env::var_os("MG_VAULT_BIN")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                let root = std::env::var_os("GEIST_ROOT")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| {
-                        dirs::home_dir()
-                            .unwrap_or_default()
-                            .join("geistos/mg-suite")
-                    });
-                root.join("mg-vaultr/target/debug/mg-vault")
-            });
-        RealVault { binary }
+        RealVault {
+            binary: crate::tools::suite_binary("MG_VAULT_BIN", "mg-vaultr", "mg-vault"),
+        }
     }
 }
 
