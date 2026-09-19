@@ -72,6 +72,8 @@ enum Command {
     },
     /// Write a book's highlights into mg-vault as one Markdown note (done after every highlight change too)
     Export { id: i64 },
+    /// The library in the terminal
+    Tui,
     /// Audiobooks: play, pause, seek, speed, chapters and the sleep timer
     Listen {
         #[command(subcommand)]
@@ -362,6 +364,7 @@ fn run(cli: Cli) -> Result<()> {
                 format!("{path}: {what}"),
             );
         }
+        Command::Tui => mg_bookr::tui::run()?,
         Command::Listen { action } => listen_command(json, &store, action)?,
     }
     Ok(())
