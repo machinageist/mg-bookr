@@ -8,12 +8,12 @@
 
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
 use mg_bookr::store::{self, Book, Store};
-use mg_bookr::{reader, scan, vault};
+use mg_bookr::{listen, reader, scan, vault};
 
 const DEFAULT_CONTINUE: usize = 12;
 
@@ -72,6 +72,57 @@ enum Command {
     },
     /// Write a book's highlights into mg-vault as one Markdown note (done after every highlight change too)
     Export { id: i64 },
+    /// Audiobooks: play, pause, seek, speed, chapters and the sleep timer
+    Listen {
+        #[command(subcommand)]
+        action: ListenAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ListenAction {
+    /// Play a book from where you left it (or from --at track:seconds)
+    Play {
+        id: i64,
+        #[arg(long)]
+        at: Option<String>,
+        /// 0.75 to 3; the book remembers it
+        #[arg(long)]
+        speed: Option<f64>,
+    },
+    /// What is playing
+    Now,
+    Pause,
+    Resume,
+    Toggle,
+    /// Move within the track: 90, 1:02:03, +30 or -10
+    Seek {
+        #[arg(allow_hyphen_values = true)]
+        time: String,
+    },
+    /// 0.75 to 3, pitch kept; the book remembers it
+    Speed {
+        speed: f64,
+    },
+    /// next, prev or a number from 1 (tracks when the file has no chapters)
+    Chapter {
+        which: String,
+    },
+    /// Stop after this many minutes, at the end of the chapter, or not: 30, chapter, off
+    Sleep {
+        when: String,
+    },
+    /// Stop listening; the place is saved
+    Stop,
+    /// One listening session: owns mpv and keeps the place (started by play)
+    #[command(hide = true)]
+    Session {
+        id: i64,
+        #[arg(long)]
+        at: Option<String>,
+        #[arg(long)]
+        speed: Option<f64>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -311,8 +362,131 @@ fn run(cli: Cli) -> Result<()> {
                 format!("{path}: {what}"),
             );
         }
+        Command::Listen { action } => listen_command(json, &store, action)?,
     }
     Ok(())
+}
+
+// The audiobook commands
+fn listen_command(json: bool, store: &Store, action: ListenAction) -> Result<()> {
+    let plan = |id| {
+        reader::plan(
+            store,
+            id,
+            &scan::default_roots(),
+            &reader::default_unpack_dir(),
+        )
+    };
+    let at = |at: Option<String>| {
+        at.map(|a| listen::parse_location(&a).context("--at is track:seconds, like 2:95.5"))
+            .transpose()
+    };
+    match action {
+        ListenAction::Play {
+            id,
+            at: place,
+            speed,
+        } => {
+            // checked here, so a mistake is said now rather than in the session's log
+            at(place.clone())?;
+            speed.map(listen::check_speed).transpose()?;
+            let exe = std::env::current_exe()?.display().to_string();
+            let mut session = vec![exe, "listen".into(), "session".into(), id.to_string()];
+            if let Some(place) = place {
+                session.extend(["--at".into(), place]);
+            }
+            if let Some(speed) = speed {
+                session.extend(["--speed".into(), speed.to_string()]);
+            }
+            listen::play(&plan(id)?, &session)?;
+            let now = listen::now(store)?;
+            let text = now.as_ref().map_or("started".into(), playing);
+            done(json, json!({ "ok": true, "now": now }), text);
+        }
+        ListenAction::Now => {
+            let now = listen::now(store)?;
+            let text = now.as_ref().map_or("nothing is playing".into(), playing);
+            done(json, json!({ "ok": true, "now": now }), text);
+        }
+        ListenAction::Pause | ListenAction::Resume | ListenAction::Toggle => {
+            let on = match action {
+                ListenAction::Pause => Some(true),
+                ListenAction::Resume => Some(false),
+                _ => None,
+            };
+            let paused = listen::pause(on)?;
+            let text = if paused { "paused" } else { "playing" };
+            done(json, json!({ "ok": true, "paused": paused }), text.into());
+        }
+        ListenAction::Seek { time } => {
+            listen::seek(&time)?;
+            done(json, json!({ "ok": true }), "moved".into());
+        }
+        ListenAction::Speed { speed } => {
+            let speed = listen::speed(speed)?;
+            done(
+                json,
+                json!({ "ok": true, "speed": speed }),
+                format!("speed {speed}\u{d7}"),
+            );
+        }
+        ListenAction::Chapter { which } => {
+            listen::chapter(&which)?;
+            done(json, json!({ "ok": true }), "moved".into());
+        }
+        ListenAction::Sleep { when } => {
+            let text = match listen::sleep(&when)? {
+                listen::Sleep::Off => "sleep timer off".into(),
+                listen::Sleep::EndOfChapter => "stopping at the end of this chapter".into(),
+                listen::Sleep::At(_) if when.trim() == "1" => "stopping in 1 minute".into(),
+                listen::Sleep::At(_) => format!("stopping in {} minutes", when.trim()),
+            };
+            done(json, json!({ "ok": true }), text);
+        }
+        ListenAction::Stop => {
+            listen::stop()?;
+            done(
+                json,
+                json!({ "ok": true }),
+                "stopped; the place is saved".into(),
+            );
+        }
+        ListenAction::Session {
+            id,
+            at: place,
+            speed,
+        } => {
+            listen::session(store, &plan(id)?, at(place)?, speed)?;
+        }
+    }
+    Ok(())
+}
+
+// "▶ Title — Chapter 3 — 12:34 / 45:00, track 2 of 10, 1.5×, sleep in 12 min"
+fn playing(now: &listen::Now) -> String {
+    let mut text = format!(
+        "{} {}",
+        if now.paused { "\u{23f8}" } else { "\u{25b6}" },
+        now.book.title
+    );
+    if let Some(chapter) = &now.chapter {
+        text += &format!(" \u{2014} {chapter}");
+    }
+    text += &format!(
+        " \u{2014} {} / {}",
+        clock(now.position),
+        clock(now.duration)
+    );
+    if now.tracks > 1 {
+        text += &format!(", track {} of {}", now.track + 1, now.tracks);
+    }
+    text += &format!(", {}\u{d7}", now.speed);
+    if let Some(left) = now.sleep_left {
+        text += &format!(", sleep in {} min", (left / 60.0).ceil());
+    } else if now.sleep_chapter {
+        text += ", sleep at chapter end";
+    }
+    text
 }
 
 // After a highlight change: rewrite the book's vault note, and say how it went (never fails the change)
