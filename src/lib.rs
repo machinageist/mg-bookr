@@ -5,5 +5,6 @@
 //        the vault export and the mpv audiobook player arrive slice by slice
 
 pub mod meta;
+pub mod scan;
 pub mod store;
 pub mod tools;
