@@ -9,3 +9,4 @@ pub mod reader;
 pub mod scan;
 pub mod store;
 pub mod tools;
+pub mod vault;
