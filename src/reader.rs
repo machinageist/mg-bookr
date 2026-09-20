@@ -14,6 +14,7 @@
 //        comics "page", audio "track:seconds"
 
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -404,6 +405,54 @@ pub fn plan(store: &Store, id: i64, roots: &crate::scan::Roots, cache: &Path) ->
         _ => {}
     }
     Ok(plan)
+}
+
+// ── The reader window ──
+
+// The reader program: $MG_BOOKR_READER, else this repository's reader/reader.py
+pub fn reader_program() -> PathBuf {
+    std::env::var_os("MG_BOOKR_READER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let root = std::env::var_os("GEIST_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    dirs::home_dir()
+                        .unwrap_or_default()
+                        .join("geistos/mg-suite")
+                });
+            root.join("mg-bookr/reader/reader.py")
+        })
+}
+
+// Open a book in the reader window and leave it running on its own.
+// The reader is a separate Qt program (PySide6) rather than part of the shell: WebEngine needs
+// the argument list a real application has, and inside Quickshell it dies at once without it.
+// It talks back through mg-bookr alone, so the window never touches the database
+pub fn open(book: &Book) -> Result<()> {
+    if book.missing {
+        bail!("{} is missing from its folder", book.title)
+    }
+    let program = reader_program();
+    if !program.is_file() {
+        bail!("the reader window is not at {}", program.display())
+    }
+    let python =
+        std::env::var_os("MG_BOOKR_PYTHON").map_or_else(|| PathBuf::from("python3"), PathBuf::from);
+    std::process::Command::new(&python)
+        .arg(&program)
+        .arg("--book")
+        .arg(book.id.to_string())
+        .arg("--bookr")
+        .arg(std::env::current_exe()?)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        // its own process group: closing the terminal that opened the book does not close it
+        .process_group(0)
+        .spawn()
+        .with_context(|| format!("{} could not run the reader", python.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -72,6 +72,10 @@ enum Command {
     },
     /// Write a book's highlights into mg-vault as one Markdown note (done after every highlight change too)
     Export { id: i64 },
+    /// Open a book in the reader window
+    Open { id: i64 },
+    /// How a book is read: pages or scroll (with no words, it says which)
+    Mode { id: i64, mode: Option<String> },
     /// The library in the terminal
     Tui,
     /// Audiobooks: play, pause, seek, speed, chapters and the sleep timer
@@ -363,6 +367,22 @@ fn run(cli: Cli) -> Result<()> {
                 json!({ "ok": true, "path": path, "outcome": what }),
                 format!("{path}: {what}"),
             );
+        }
+        Command::Open { id } => {
+            let book = store.book(id)?;
+            reader::open(&book)?;
+            done(
+                json,
+                json!({ "ok": true, "book": book }),
+                format!("opening {}", book.title),
+            );
+        }
+        Command::Mode { id, mode } => {
+            if let Some(mode) = &mode {
+                store.set_mode(id, mode)?;
+            }
+            let mode = store.mode(id)?.unwrap_or_else(|| "unset".into());
+            done(json, json!({ "ok": true, "mode": mode }), mode);
         }
         Command::Tui => mg_bookr::tui::run()?,
         Command::Listen { action } => listen_command(json, &store, action)?,

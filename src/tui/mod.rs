@@ -133,10 +133,10 @@ fn apply(effect: Effect, state: &mut State, store: &Store, tx: &Sender<Update>) 
             listen::play(&plan, &listen::session_command(id)?)?;
             state.message = Some(format!("playing {}", plan.book.title));
         }
-        // the reader window is its own program; it is not written yet
         Effect::Read(id) => {
             let book = store.book(id)?;
-            state.message = Some(format!("{} opens in the reader window", book.title));
+            crate::reader::open(&book)?;
+            state.message = Some(format!("opening {}", book.title));
         }
         Effect::Listen(control) => match control {
             Control::Toggle => {
