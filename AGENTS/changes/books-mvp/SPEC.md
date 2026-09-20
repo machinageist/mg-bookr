@@ -22,7 +22,10 @@ reader, and highlights that land in the vault. Local folders only, DRM-free, no 
   owns mpv and exits with it; no always-on unit. Speed is remembered **per book**. Comforts
   (2026-09-19): back up 10 s on a resume after 5+ minutes away; the sleep timer fades out
   over its last 10 s; starting a book pauses mpd music (not resumed afterwards).
-- Reading happens in **its own process**: a small Quickshell program sharing the desktop Theme.
+- Reading happens in **its own process**: a small Qt program (PySide6) that takes the desktop's
+  palette as data. It cannot be a Quickshell program: WebEngine needs the argument list a real
+  application has, and inside Quickshell it dies at once (verified 2026-09-19). The palette comes
+  from the shell's `theme json` IPC, else the saved theme name with palettes.json.
   EPUB is drawn by WebEngine with the theme injected, PDF by QtQuick.Pdf, comics as images.
   Pages or continuous scroll, switchable per book.
 - Highlights and notes go to **mg-vault** as one Markdown note per book, regenerated from

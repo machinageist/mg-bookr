@@ -13,6 +13,6 @@ Description: BK slices, each committed with its gates green
 5. ✔ Audiobooks: mpv IPC player (play, pause, seek, speed, chapters, sleep), positions, and an
    on-demand session in place of the planned user unit (Jeff, 2026-09-19).
 6. ✔ TUI: library and audiobooks.
-7. Reader program (Quickshell, own process): EPUB (WebEngine), PDF, comics; pages or scroll;
-   highlights.
+7. ✔ Reader program (own process): EPUB (WebEngine), PDF, comics; pages or scroll; highlights.
+   Built with PySide6, not Quickshell — WebEngine cannot run inside Quickshell (Jeff, 2026-09-19).
 8. Shell: Books panel (library, continue reading/listening, audiobook controls), IPC, launcher.
