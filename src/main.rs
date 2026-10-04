@@ -13,6 +13,7 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 
 use mg_bookr::store::{self, Book, Store};
+use mg_bookr::terminal_text::sanitize_terminal_text;
 use mg_bookr::{listen, reader, scan, vault};
 
 const DEFAULT_CONTINUE: usize = 12;
@@ -174,7 +175,7 @@ fn main() -> ExitCode {
             if json {
                 println!("{}", json!({ "ok": false, "error": format!("{e:#}") }));
             } else {
-                eprintln!("mg-bookr: {e:#}");
+                eprintln!("mg-bookr: {}", sanitize_terminal_text(&format!("{e:#}")));
             }
             ExitCode::FAILURE
         }
@@ -195,7 +196,11 @@ fn run(cli: Cli) -> Result<()> {
                     report.found, report.added, report.missing
                 );
                 for (path, why) in &report.unreadable {
-                    println!("  could not read {path}: {why}");
+                    println!(
+                        "  could not read {}: {}",
+                        sanitize_terminal_text(path),
+                        sanitize_terminal_text(why)
+                    );
                 }
             }
         }
@@ -214,15 +219,15 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 println!("{}", line(&book));
                 for (title, start) in &chapters {
-                    println!("  {:>8}  {title}", clock(*start));
+                    println!("  {:>8}  {}", clock(*start), sanitize_terminal_text(title));
                 }
                 for h in &highlights {
                     println!(
                         "  \u{201c}{}\u{201d}{}",
-                        h.quote,
-                        h.note
-                            .as_ref()
-                            .map_or(String::new(), |n| format!(" \u{2014} {n}"))
+                        sanitize_terminal_text(&h.quote),
+                        h.note.as_ref().map_or(String::new(), |n| {
+                            format!(" \u{2014} {}", sanitize_terminal_text(n))
+                        })
                     );
                 }
             }
@@ -237,7 +242,11 @@ fn run(cli: Cli) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&plan)?);
             } else {
-                println!("{}  {}", line(&plan.book), plan.file);
+                println!(
+                    "{}  {}",
+                    line(&plan.book),
+                    sanitize_terminal_text(&plan.file)
+                );
                 if let Some(e) = &plan.epub {
                     println!(
                         "  {} pages, {} contents entries, unpacked in {}",
@@ -302,7 +311,12 @@ fn run(cli: Cli) -> Result<()> {
                     println!("{}", serde_json::to_string(&list)?);
                 } else {
                     for h in &list {
-                        println!("{:>5}  [{}] \u{201c}{}\u{201d}", h.id, h.color, h.quote);
+                        println!(
+                            "{:>5}  [{}] \u{201c}{}\u{201d}",
+                            h.id,
+                            sanitize_terminal_text(&h.color),
+                            sanitize_terminal_text(&h.quote)
+                        );
                     }
                 }
             }
@@ -339,7 +353,7 @@ fn run(cli: Cli) -> Result<()> {
                     );
                 } else {
                     for (name, count) in &list {
-                        println!("{name}  ({count})");
+                        println!("{}  ({count})", sanitize_terminal_text(name));
                     }
                 }
             }
@@ -482,10 +496,10 @@ fn playing(now: &listen::Now) -> String {
     let mut text = format!(
         "{} {}",
         if now.paused { "\u{23f8}" } else { "\u{25b6}" },
-        now.book.title
+        sanitize_terminal_text(&now.book.title)
     );
     if let Some(chapter) = &now.chapter {
-        text += &format!(" \u{2014} {chapter}");
+        text += &format!(" \u{2014} {}", sanitize_terminal_text(chapter));
     }
     text += &format!(
         " \u{2014} {} / {}",
@@ -521,7 +535,7 @@ fn done(json: bool, value: serde_json::Value, text: String) {
     if json {
         println!("{value}");
     } else {
-        println!("{text}");
+        println!("{}", sanitize_terminal_text(&text));
     }
 }
 
@@ -538,10 +552,9 @@ fn books(json: bool, list: &[Book]) -> Result<()> {
 
 // "  12  [epub]  Title — Author  (40%)"
 fn line(b: &Book) -> String {
-    let by = b
-        .author
-        .as_ref()
-        .map_or(String::new(), |a| format!(" \u{2014} {a}"));
+    let by = b.author.as_ref().map_or(String::new(), |a| {
+        format!(" \u{2014} {}", sanitize_terminal_text(a))
+    });
     let at = b.percent.map_or(String::new(), |p| {
         if b.finished {
             "  (finished)".into()
@@ -550,11 +563,48 @@ fn line(b: &Book) -> String {
         }
     });
     let gone = if b.missing { "  [missing]" } else { "" };
-    format!("{:>4}  [{}]  {}{by}{at}{gone}", b.id, b.kind, b.title)
+    format!(
+        "{:>4}  [{}]  {}{by}{at}{gone}",
+        b.id,
+        sanitize_terminal_text(&b.kind),
+        sanitize_terminal_text(&b.title)
+    )
 }
 
 // 3725 s → "1:02:05"
 fn clock(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
     format!("{}:{:02}:{:02}", s / 3600, s % 3600 / 60, s % 60)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_book_rows_remove_terminal_active_metadata() {
+        let book = Book {
+            id: 1,
+            kind: "epub\u{1b}[2J".into(),
+            root: "books".into(),
+            path: "book.epub".into(),
+            title: "title\u{202e}spoof".into(),
+            author: Some("author\nsecond-line".into()),
+            series: None,
+            series_index: None,
+            cover: None,
+            pages: None,
+            duration_seconds: None,
+            missing: false,
+            location: None,
+            percent: None,
+            finished: false,
+            updated_at: None,
+        };
+        let rendered = line(&book);
+        assert_eq!(
+            rendered,
+            "   1  [epub[2J]  titlespoof \u{2014} authorsecond-line"
+        );
+    }
 }

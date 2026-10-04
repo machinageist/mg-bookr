@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 
 use crate::meta::{self, Meta};
 use crate::store::{Found, Store};
+use crate::terminal_text::sanitize_terminal_text;
 
 pub const BOOKS: &str = "books";
 pub const AUDIOBOOKS: &str = "audiobooks";
@@ -203,22 +204,27 @@ pub fn scan(store: &Store, roots: &Roots, cover_dir: &Path) -> Result<Report> {
             });
             let key = cover_key(root_name, &rel, &path);
             let cover = store_cover(&kind, &path, &mut meta, cover_dir, &key);
+            let title = meta
+                .title
+                .clone()
+                .unwrap_or_else(|| meta::title_from_name(&rel));
             found.push(Found {
                 kind,
                 root: root_name.to_string(),
-                title: meta
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| meta::title_from_name(&rel)),
+                title: sanitize_terminal_text(&title),
                 path: rel,
-                author: meta.author,
-                series: meta.series,
+                author: meta.author.as_deref().map(sanitize_terminal_text),
+                series: meta.series.as_deref().map(sanitize_terminal_text),
                 series_index: meta.series_index,
                 cover,
                 pages: meta.pages,
                 duration_seconds: meta.duration_seconds,
                 tracks: meta.tracks,
-                chapters: meta.chapters,
+                chapters: meta
+                    .chapters
+                    .into_iter()
+                    .map(|(title, start)| (sanitize_terminal_text(&title), start))
+                    .collect(),
             });
         }
     }

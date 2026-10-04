@@ -1,5 +1,8 @@
 /target
 
+# Python bytecode
+__pycache__/
+*.py[cod]
 
 # Added by cargo
 #
